@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import type { Priority, Subtask, Task, TaskStatus } from "@/types/task";
+import type { Priority, RecurrenceInput, Subtask, Task, TaskStatus } from "@/types/task";
 import {
   PRIORITY_BADGE_CLASS,
   PRIORITY_LABEL,
@@ -9,6 +9,14 @@ import {
   STATUS_OPTIONS,
   isOverdue,
 } from "@/lib/priority";
+import { formatRecurrenceLabel } from "@/lib/recurrence";
+import RecurrenceFields from "@/components/RecurrenceFields";
+
+type TaskEditUpdates = {
+  title: string;
+  assignee: string | null;
+  due_date: string | null;
+} & RecurrenceInput;
 
 const PRIORITY_OPTIONS: Priority[] = [1, 2, 3];
 
@@ -18,6 +26,8 @@ export default function TaskList({
   onStatusChange,
   onPriorityChange,
   onSuggestedDateChange,
+  onUpdateTask,
+  onDeleteTask,
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
@@ -30,6 +40,8 @@ export default function TaskList({
   onStatusChange: (id: number, status: TaskStatus) => void;
   onPriorityChange: (id: number, priority: Priority) => void;
   onSuggestedDateChange: (id: number, suggestedDate: string) => void;
+  onUpdateTask: (id: number, updates: TaskEditUpdates) => void;
+  onDeleteTask: (id: number) => void;
   onAddSubtask: (taskId: number, title: string) => void;
   onToggleSubtask: (subtaskId: string, taskId: number, done: boolean) => void;
   onDeleteSubtask: (subtaskId: string, taskId: number) => void;
@@ -64,6 +76,7 @@ export default function TaskList({
             <th className="px-4 py-3">期限</th>
             <th className="px-4 py-3">AI提案日</th>
             <th className="px-4 py-3">ステータス</th>
+            <th className="px-4 py-3">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -75,6 +88,8 @@ export default function TaskList({
               onStatusChange={onStatusChange}
               onPriorityChange={onPriorityChange}
               onSuggestedDateChange={onSuggestedDateChange}
+              onUpdateTask={onUpdateTask}
+              onDeleteTask={onDeleteTask}
               onAddSubtask={onAddSubtask}
               onToggleSubtask={onToggleSubtask}
               onDeleteSubtask={onDeleteSubtask}
@@ -95,6 +110,8 @@ function TaskRow({
   onStatusChange,
   onPriorityChange,
   onSuggestedDateChange,
+  onUpdateTask,
+  onDeleteTask,
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
@@ -107,6 +124,8 @@ function TaskRow({
   onStatusChange: (id: number, status: TaskStatus) => void;
   onPriorityChange: (id: number, priority: Priority) => void;
   onSuggestedDateChange: (id: number, suggestedDate: string) => void;
+  onUpdateTask: (id: number, updates: TaskEditUpdates) => void;
+  onDeleteTask: (id: number) => void;
   onAddSubtask: (taskId: number, title: string) => void;
   onToggleSubtask: (subtaskId: string, taskId: number, done: boolean) => void;
   onDeleteSubtask: (subtaskId: string, taskId: number) => void;
@@ -115,9 +134,48 @@ function TaskRow({
   breakdownLoading: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(task.title);
+  const [editAssignee, setEditAssignee] = useState(task.assignee ?? "");
+  const [editDueDate, setEditDueDate] = useState(task.due_date ?? "");
+  const [editRecurrence, setEditRecurrence] = useState<RecurrenceInput>({
+    is_recurring: task.is_recurring,
+    recurrence_type: task.recurrence_type,
+    recurrence_weekday: task.recurrence_weekday,
+  });
   const overdue = isOverdue(task.due_date, task.status);
   const doneCount = subtasks.filter((s) => s.done).length;
   const total = subtasks.length;
+
+  function startEditing() {
+    setEditTitle(task.title);
+    setEditAssignee(task.assignee ?? "");
+    setEditDueDate(task.due_date ?? "");
+    setEditRecurrence({
+      is_recurring: task.is_recurring,
+      recurrence_type: task.recurrence_type,
+      recurrence_weekday: task.recurrence_weekday,
+    });
+    setEditing(true);
+  }
+
+  function handleSave() {
+    const trimmedTitle = editTitle.trim();
+    if (!trimmedTitle) return;
+    onUpdateTask(task.id, {
+      title: trimmedTitle,
+      assignee: editAssignee.trim() || null,
+      due_date: editDueDate || null,
+      ...editRecurrence,
+    });
+    setEditing(false);
+  }
+
+  function handleDelete() {
+    if (window.confirm("このタスクを削除しますか?関連する工程もすべて削除されます。")) {
+      onDeleteTask(task.id);
+    }
+  }
 
   return (
     <>
@@ -148,26 +206,64 @@ function TaskRow({
           </select>
         </td>
         <td className="px-4 py-3 font-medium text-zinc-900 dark:text-zinc-100">
-          {task.title}
-          {total > 0 && (
-            <p className="mt-0.5 text-xs font-normal text-zinc-400">
-              工程 {doneCount}/{total}完了
-            </p>
-          )}
-          {task.ai_reason && (
-            <p className="mt-0.5 text-xs font-normal text-zinc-400">
-              {task.ai_reason}
-            </p>
+          {editing ? (
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm font-normal focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+              />
+              <RecurrenceFields value={editRecurrence} onChange={setEditRecurrence} />
+            </div>
+          ) : (
+            <>
+              {task.title}
+              {task.is_recurring && task.recurrence_type && (
+                <p className="mt-0.5 text-xs font-normal text-indigo-500">
+                  🔁 {formatRecurrenceLabel(task.recurrence_type, task.recurrence_weekday)}
+                </p>
+              )}
+              {total > 0 && (
+                <p className="mt-0.5 text-xs font-normal text-zinc-400">
+                  工程 {doneCount}/{total}完了
+                </p>
+              )}
+              {task.ai_reason && (
+                <p className="mt-0.5 text-xs font-normal text-zinc-400">
+                  {task.ai_reason}
+                </p>
+              )}
+            </>
           )}
         </td>
         <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-          {task.assignee || "-"}
+          {editing ? (
+            <input
+              type="text"
+              placeholder="担当者"
+              value={editAssignee}
+              onChange={(e) => setEditAssignee(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 px-2 py-1 text-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+            />
+          ) : (
+            task.assignee || "-"
+          )}
         </td>
         <td className="px-4 py-3">
-          <span className={overdue ? "font-semibold text-red-600" : "text-zinc-600 dark:text-zinc-400"}>
-            {task.due_date || "-"}
-            {overdue && " (期限超過)"}
-          </span>
+          {editing ? (
+            <input
+              type="date"
+              value={editDueDate}
+              onChange={(e) => setEditDueDate(e.target.value)}
+              className="rounded-lg border border-zinc-300 px-2 py-1 text-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+            />
+          ) : (
+            <span className={overdue ? "font-semibold text-red-600" : "text-zinc-600 dark:text-zinc-400"}>
+              {task.due_date || "-"}
+              {overdue && " (期限超過)"}
+            </span>
+          )}
         </td>
         <td className="px-4 py-3">
           <input
@@ -190,10 +286,49 @@ function TaskRow({
             ))}
           </select>
         </td>
+        <td className="px-4 py-3">
+          <div className="flex gap-2">
+            {editing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  className="rounded-lg bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+                >
+                  保存
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  キャンセル
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={startEditing}
+                  className="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-600 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  編集
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                >
+                  削除
+                </button>
+              </>
+            )}
+          </div>
+        </td>
       </tr>
       {expanded && (
         <tr className="border-b border-zinc-100 last:border-0 bg-zinc-50/60 dark:border-zinc-800 dark:bg-zinc-950/40">
-          <td colSpan={7} className="px-6 py-4">
+          <td colSpan={8} className="px-6 py-4">
             <TaskSubtasks
               taskId={task.id}
               subtasks={subtasks}
