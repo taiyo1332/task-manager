@@ -9,6 +9,7 @@ import type { Member } from "@/types/member";
 import { UNASSIGNED_LABEL, colorForName, initials, personSlug } from "@/lib/person";
 import CreateTaskForm, { type NewTeamTaskInput } from "@/components/CreateTaskForm";
 import AvatarUploadModal from "@/components/AvatarUploadModal";
+import MemberDeleteModal from "@/components/MemberDeleteModal";
 
 interface PersonSummary {
   slug: string;
@@ -48,6 +49,7 @@ export default function TeamPage({ params }: { params: Promise<{ teamId: string 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avatarTarget, setAvatarTarget] = useState<PersonSummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PersonSummary | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -101,6 +103,51 @@ export default function TeamPage({ params }: { params: Promise<{ teamId: string 
 
   function getAvatarUrl(name: string): string | null {
     return members.find((m) => m.name === name)?.avatar_url ?? null;
+  }
+
+  async function handleTransferAndDelete(
+    personName: string,
+    targetAssignee: string | null
+  ): Promise<string | null> {
+    const { error: updateError } = await supabase
+      .from("tasks")
+      .update({ assignee: targetAssignee })
+      .eq("team_id", teamId)
+      .eq("assignee", personName);
+
+    if (updateError) return updateError.message;
+
+    const { error: memberError } = await supabase
+      .from("members")
+      .delete()
+      .eq("team_id", teamId)
+      .eq("name", personName);
+
+    if (memberError) return memberError.message;
+
+    await fetchData();
+    return null;
+  }
+
+  async function handleDeleteMemberAndTasks(personName: string): Promise<string | null> {
+    const { error: tasksError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("team_id", teamId)
+      .eq("assignee", personName);
+
+    if (tasksError) return tasksError.message;
+
+    const { error: memberError } = await supabase
+      .from("members")
+      .delete()
+      .eq("team_id", teamId)
+      .eq("name", personName);
+
+    if (memberError) return memberError.message;
+
+    await fetchData();
+    return null;
   }
 
   const people = summarizeByAssignee(tasks);
@@ -194,6 +241,15 @@ export default function TeamPage({ params }: { params: Promise<{ teamId: string 
                           )}%)`}
                     </span>
                   </Link>
+                  {!isUnassigned && (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(person)}
+                      className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      削除
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -208,6 +264,20 @@ export default function TeamPage({ params }: { params: Promise<{ teamId: string 
           currentAvatarUrl={getAvatarUrl(avatarTarget.name)}
           onClose={() => setAvatarTarget(null)}
           onUploaded={() => fetchData()}
+        />
+      )}
+
+      {deleteTarget && (
+        <MemberDeleteModal
+          personName={deleteTarget.name}
+          otherMemberNames={people
+            .filter((p) => p.name !== UNASSIGNED_LABEL && p.name !== deleteTarget.name)
+            .map((p) => p.name)}
+          onClose={() => setDeleteTarget(null)}
+          onTransfer={(targetAssignee) =>
+            handleTransferAndDelete(deleteTarget.name, targetAssignee)
+          }
+          onDeleteAll={() => handleDeleteMemberAndTasks(deleteTarget.name)}
         />
       )}
     </div>

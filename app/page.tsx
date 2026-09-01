@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { Team } from "@/types/team";
 
+const ARCHIVE_TEAM_NAME = "アーカイブ";
+
 export default function Home() {
   const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
@@ -13,27 +15,28 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchTeams() {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("teams")
-        .select("*")
-        .order("created_at", { ascending: true });
-
-      if (error) {
-        setError(error.message);
-      } else {
-        setTeams(data as Team[]);
-        setError(null);
-      }
-      setLoading(false);
-    }
-
     fetchTeams();
   }, []);
+
+  async function fetchTeams() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("teams")
+      .select("*")
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      setTeams(data as Team[]);
+      setError(null);
+    }
+    setLoading(false);
+  }
 
   async function handleCreateTeam(e: FormEvent) {
     e.preventDefault();
@@ -57,6 +60,84 @@ export default function Home() {
     setShowForm(false);
     setNewTeamName("");
     router.push(`/team/${(data as Team).id}`);
+  }
+
+  async function ensureArchiveTeam(): Promise<string | null> {
+    const { data: existing, error: findError } = await supabase
+      .from("teams")
+      .select("id")
+      .eq("name", ARCHIVE_TEAM_NAME)
+      .maybeSingle();
+
+    if (findError) {
+      setError(findError.message);
+      return null;
+    }
+    if (existing) return existing.id;
+
+    const { data: created, error: createError } = await supabase
+      .from("teams")
+      .insert({ name: ARCHIVE_TEAM_NAME })
+      .select("id")
+      .single();
+
+    if (createError) {
+      setError(createError.message);
+      return null;
+    }
+    return created.id;
+  }
+
+  async function handleDeleteTeam(team: Team) {
+    const isArchive = team.name === ARCHIVE_TEAM_NAME;
+    const confirmMessage = isArchive
+      ? `本当に削除しますか?\n\nチーム名: ${team.name}\n\nこのチームは「${ARCHIVE_TEAM_NAME}」チームのため、移動先がなく、所属するタスク・工程はすべて完全に削除されます。この操作は取り消せません。`
+      : `本当に削除しますか?\n\nチーム名: ${team.name}\n\n所属するタスクは「${ARCHIVE_TEAM_NAME}」チームに移動されます。`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setDeletingTeamId(team.id);
+    setError(null);
+
+    if (isArchive) {
+      const { error: deleteTasksError } = await supabase
+        .from("tasks")
+        .delete()
+        .eq("team_id", team.id);
+
+      if (deleteTasksError) {
+        setError(deleteTasksError.message);
+        setDeletingTeamId(null);
+        return;
+      }
+    } else {
+      const archiveTeamId = await ensureArchiveTeam();
+      if (!archiveTeamId) {
+        setDeletingTeamId(null);
+        return;
+      }
+
+      const { error: moveError } = await supabase
+        .from("tasks")
+        .update({ team_id: archiveTeamId })
+        .eq("team_id", team.id);
+
+      if (moveError) {
+        setError(moveError.message);
+        setDeletingTeamId(null);
+        return;
+      }
+    }
+
+    const { error: deleteTeamError } = await supabase.from("teams").delete().eq("id", team.id);
+    if (deleteTeamError) {
+      setError(deleteTeamError.message);
+      setDeletingTeamId(null);
+      return;
+    }
+
+    await fetchTeams();
+    setDeletingTeamId(null);
   }
 
   return (
@@ -84,13 +165,21 @@ export default function Home() {
         ) : (
           <ul className="flex flex-col gap-2">
             {teams.map((team) => (
-              <li key={team.id}>
+              <li key={team.id} className="flex items-center gap-2">
                 <Link
                   href={`/team/${team.id}`}
-                  className="block rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-700"
+                  className="flex-1 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-700"
                 >
                   {team.name}
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteTeam(team)}
+                  disabled={deletingTeamId === team.id}
+                  className="rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                >
+                  {deletingTeamId === team.id ? "削除中..." : "削除"}
+                </button>
               </li>
             ))}
             {teams.length === 0 && (
