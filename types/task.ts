@@ -3,7 +3,7 @@ export type TaskStatus = "未着手" | "進行中" | "完了";
 export type Priority = 1 | 2 | 3;
 
 export interface Task {
-  id: string;
+  id: number;
   title: string;
   status: TaskStatus;
   assignee: string | null;
@@ -19,4 +19,13 @@ export interface NewTaskInput {
   assignee: string;
   due_date: string;
   priority: Priority;
+}
+
+export interface Subtask {
+  id: string;
+  task_id: number;
+  title: string;
+  done: boolean;
+  sort_order: number;
+  created_at?: string;
 }
