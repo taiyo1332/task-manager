@@ -8,6 +8,7 @@ import {
   STATUS_BADGE_CLASS,
   STATUS_OPTIONS,
   isOverdue,
+  isSubtaskOverdue,
 } from "@/lib/priority";
 import { formatRecurrenceLabel } from "@/lib/recurrence";
 import RecurrenceFields from "@/components/RecurrenceFields";
@@ -31,6 +32,7 @@ export default function TaskList({
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
+  onUpdateSubtaskDueDate,
   onMoveSubtask,
   onBreakdown,
   breakdownLoadingId,
@@ -42,9 +44,10 @@ export default function TaskList({
   onSuggestedDateChange: (id: number, suggestedDate: string) => void;
   onUpdateTask: (id: number, updates: TaskEditUpdates) => void;
   onDeleteTask: (id: number) => void;
-  onAddSubtask: (taskId: number, title: string) => void;
+  onAddSubtask: (taskId: number, title: string, dueDate: string | null) => void;
   onToggleSubtask: (subtaskId: string, taskId: number, done: boolean) => void;
   onDeleteSubtask: (subtaskId: string, taskId: number) => void;
+  onUpdateSubtaskDueDate: (subtaskId: string, taskId: number, dueDate: string | null) => void;
   onMoveSubtask: (taskId: number, subtaskId: string, direction: "up" | "down") => void;
   onBreakdown: (taskId: number) => void;
   breakdownLoadingId: number | null;
@@ -93,6 +96,7 @@ export default function TaskList({
               onAddSubtask={onAddSubtask}
               onToggleSubtask={onToggleSubtask}
               onDeleteSubtask={onDeleteSubtask}
+              onUpdateSubtaskDueDate={onUpdateSubtaskDueDate}
               onMoveSubtask={onMoveSubtask}
               onBreakdown={onBreakdown}
               breakdownLoading={breakdownLoadingId === task.id}
@@ -115,6 +119,7 @@ function TaskRow({
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
+  onUpdateSubtaskDueDate,
   onMoveSubtask,
   onBreakdown,
   breakdownLoading,
@@ -126,9 +131,10 @@ function TaskRow({
   onSuggestedDateChange: (id: number, suggestedDate: string) => void;
   onUpdateTask: (id: number, updates: TaskEditUpdates) => void;
   onDeleteTask: (id: number) => void;
-  onAddSubtask: (taskId: number, title: string) => void;
+  onAddSubtask: (taskId: number, title: string, dueDate: string | null) => void;
   onToggleSubtask: (subtaskId: string, taskId: number, done: boolean) => void;
   onDeleteSubtask: (subtaskId: string, taskId: number) => void;
+  onUpdateSubtaskDueDate: (subtaskId: string, taskId: number, dueDate: string | null) => void;
   onMoveSubtask: (taskId: number, subtaskId: string, direction: "up" | "down") => void;
   onBreakdown: (taskId: number) => void;
   breakdownLoading: boolean;
@@ -335,6 +341,7 @@ function TaskRow({
               onAdd={onAddSubtask}
               onToggle={onToggleSubtask}
               onDelete={onDeleteSubtask}
+              onUpdateDueDate={onUpdateSubtaskDueDate}
               onMove={onMoveSubtask}
               onBreakdown={onBreakdown}
               breakdownLoading={breakdownLoading}
@@ -352,28 +359,32 @@ function TaskSubtasks({
   onAdd,
   onToggle,
   onDelete,
+  onUpdateDueDate,
   onMove,
   onBreakdown,
   breakdownLoading,
 }: {
   taskId: number;
   subtasks: Subtask[];
-  onAdd: (taskId: number, title: string) => void;
+  onAdd: (taskId: number, title: string, dueDate: string | null) => void;
   onToggle: (subtaskId: string, taskId: number, done: boolean) => void;
   onDelete: (subtaskId: string, taskId: number) => void;
+  onUpdateDueDate: (subtaskId: string, taskId: number, dueDate: string | null) => void;
   onMove: (taskId: number, subtaskId: string, direction: "up" | "down") => void;
   onBreakdown: (taskId: number) => void;
   breakdownLoading: boolean;
 }) {
   const [newTitle, setNewTitle] = useState("");
+  const [newDueDate, setNewDueDate] = useState("");
   const sorted = [...subtasks].sort((a, b) => a.sort_order - b.sort_order);
 
   function handleAdd(e: FormEvent) {
     e.preventDefault();
     const trimmed = newTitle.trim();
     if (!trimmed) return;
-    onAdd(taskId, trimmed);
+    onAdd(taskId, trimmed, newDueDate || null);
     setNewTitle("");
+    setNewDueDate("");
   }
 
   return (
@@ -396,7 +407,9 @@ function TaskSubtasks({
         <p className="text-sm text-zinc-400">工程はまだありません。</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {sorted.map((subtask, index) => (
+          {sorted.map((subtask, index) => {
+            const subtaskOverdue = isSubtaskOverdue(subtask.due_date, subtask.done);
+            return (
             <li
               key={subtask.id}
               className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
@@ -411,11 +424,24 @@ function TaskSubtasks({
                 className={
                   subtask.done
                     ? "flex-1 text-zinc-400 line-through"
-                    : "flex-1 text-zinc-700 dark:text-zinc-200"
+                    : subtaskOverdue
+                      ? "flex-1 font-semibold text-red-600 dark:text-red-400"
+                      : "flex-1 text-zinc-700 dark:text-zinc-200"
                 }
               >
                 {subtask.title}
+                {subtaskOverdue && " (期限超過)"}
               </span>
+              <input
+                type="date"
+                value={subtask.due_date ?? ""}
+                onChange={(e) => onUpdateDueDate(subtask.id, taskId, e.target.value || null)}
+                className={`rounded-lg border px-2 py-1 text-xs focus:outline-none ${
+                  subtaskOverdue
+                    ? "border-red-300 font-semibold text-red-600 focus:border-red-500 dark:border-red-800 dark:text-red-400"
+                    : "border-zinc-300 text-zinc-600 focus:border-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+                }`}
+              />
               <button
                 type="button"
                 onClick={() => onMove(taskId, subtask.id, "up")}
@@ -443,7 +469,8 @@ function TaskSubtasks({
                 ×
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
@@ -454,6 +481,12 @@ function TaskSubtasks({
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           className="flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
+        />
+        <input
+          type="date"
+          value={newDueDate}
+          onChange={(e) => setNewDueDate(e.target.value)}
+          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950"
         />
         <button
           type="submit"

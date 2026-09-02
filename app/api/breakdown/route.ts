@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
+import { todayLocalDate } from "@/lib/date";
 
 interface BreakdownRequestBody {
   taskId?: number;
+}
+
+interface BreakdownStep {
+  title: string;
+  due_date: string | null;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function clampDueDate(candidate: string | null, ceiling: string | null): string | null {
+  if (!candidate) return null;
+  if (!ceiling) return candidate;
+  return candidate > ceiling ? ceiling : candidate;
 }
 
 export async function POST(request: Request) {
@@ -29,6 +43,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "タスクが見つかりません" }, { status: 404 });
   }
 
+  const today = todayLocalDate();
+
   let responseText: string;
   try {
     const anthropic = new Anthropic();
@@ -37,16 +53,21 @@ export async function POST(request: Request) {
       max_tokens: 1024,
       system:
         "あなたはプロジェクトマネージャーのアシスタントです。" +
-        "与えられたタスクを実行するための具体的な工程を4〜6ステップ程度で洗い出してください。" +
+        "与えられたタスクを実行するための具体的な工程を4〜6ステップ程度で洗い出し、各工程に期限(due_date)を割り振ってください。" +
+        "期限は今日以降の日付にしてください。タスク全体の期限が指定されている場合は、その日付を超えないように、" +
+        "工程の内容や作業量、順序を考慮して妥当な間隔で配分してください。" +
+        "タスク全体の期限が指定されていない場合は、今日の日付を起点に妥当な間隔で割り振ってください。" +
         "説明文やコードブロック記号なしで、JSON配列のみを返してください。" +
-        '配列の各要素は工程名を表す文字列にしてください。例: ["要件整理", "設計", "実装", "レビュー", "リリース"]',
+        '配列の各要素は {"title": "工程名", "due_date": "YYYY-MM-DD"} の形式にしてください。' +
+        '例: [{"title": "要件整理", "due_date": "2026-09-05"}, {"title": "設計", "due_date": "2026-09-08"}]',
       messages: [
         {
           role: "user",
           content:
+            `今日の日付: ${today}\n` +
             `タスク名: ${task.title}\n` +
             `担当者: ${task.assignee || "未定"}\n` +
-            `期限: ${task.due_date || "未定"}`,
+            `タスク全体の期限: ${task.due_date || "未定"}`,
         },
       ],
     });
@@ -85,7 +106,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let steps: string[];
+  let steps: BreakdownStep[];
   try {
     const cleaned = responseText
       .trim()
@@ -94,9 +115,13 @@ export async function POST(request: Request) {
       .trim();
     const parsed = JSON.parse(cleaned);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    steps = parsed.filter(
-      (s): s is string => typeof s === "string" && s.trim().length > 0
-    );
+    steps = parsed
+      .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+      .map((s) => ({
+        title: typeof s.title === "string" ? s.title.trim() : "",
+        due_date: typeof s.due_date === "string" && DATE_RE.test(s.due_date) ? s.due_date : null,
+      }))
+      .filter((s) => s.title.length > 0);
     if (steps.length === 0) throw new Error("empty");
   } catch {
     return NextResponse.json(
@@ -116,7 +141,14 @@ export async function POST(request: Request) {
 
   const { data: inserted, error: insertError } = await supabase
     .from("subtasks")
-    .insert(steps.map((title, index) => ({ task_id: taskId, title, sort_order: index })))
+    .insert(
+      steps.map((step, index) => ({
+        task_id: taskId,
+        title: step.title,
+        sort_order: index,
+        due_date: clampDueDate(step.due_date, task.due_date),
+      }))
+    )
     .select("*");
 
   if (insertError) {

@@ -208,14 +208,14 @@ export default function TaskWorkspace({
     }
   }
 
-  async function handleAddSubtask(taskId: number, title: string) {
+  async function handleAddSubtask(taskId: number, title: string, dueDate: string | null) {
     const current = subtasksByTask[taskId] ?? [];
     const nextPosition =
       current.length > 0 ? Math.max(...current.map((s) => s.sort_order)) + 1 : 0;
 
     const { data, error } = await supabase
       .from("subtasks")
-      .insert({ task_id: taskId, title, sort_order: nextPosition })
+      .insert({ task_id: taskId, title, sort_order: nextPosition, due_date: dueDate })
       .select("*")
       .single();
 
@@ -238,6 +238,29 @@ export default function TaskWorkspace({
     }));
 
     const { error } = await supabase.from("subtasks").update({ done }).eq("id", subtaskId);
+    if (error) {
+      setError(error.message);
+      setSubtasksByTask(previous);
+    }
+  }
+
+  async function handleUpdateSubtaskDueDate(
+    subtaskId: string,
+    taskId: number,
+    dueDate: string | null
+  ) {
+    const previous = subtasksByTask;
+    setSubtasksByTask((cur) => ({
+      ...cur,
+      [taskId]: (cur[taskId] ?? []).map((s) =>
+        s.id === subtaskId ? { ...s, due_date: dueDate } : s
+      ),
+    }));
+
+    const { error } = await supabase
+      .from("subtasks")
+      .update({ due_date: dueDate })
+      .eq("id", subtaskId);
     if (error) {
       setError(error.message);
       setSubtasksByTask(previous);
@@ -351,6 +374,7 @@ export default function TaskWorkspace({
           onAddSubtask={handleAddSubtask}
           onToggleSubtask={handleToggleSubtask}
           onDeleteSubtask={handleDeleteSubtask}
+          onUpdateSubtaskDueDate={handleUpdateSubtaskDueDate}
           onMoveSubtask={handleMoveSubtask}
           onBreakdown={handleBreakdown}
           breakdownLoadingId={breakdownLoadingId}

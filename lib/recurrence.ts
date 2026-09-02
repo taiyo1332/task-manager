@@ -1,4 +1,5 @@
 import type { RecurrenceType } from "@/types/task";
+import { formatLocalDate } from "@/lib/date";
 
 export const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -10,13 +11,6 @@ export function formatRecurrenceLabel(
   if (type === "weekly") return `毎週${WEEKDAY_LABELS[weekday ?? 0]}曜日`;
   if (type === "monthly") return "毎月";
   return "";
-}
-
-function formatLocalDate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 export function computeNextDueDate(

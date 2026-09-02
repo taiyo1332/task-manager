@@ -39,5 +39,6 @@ export interface Subtask {
   title: string;
   done: boolean;
   sort_order: number;
+  due_date: string | null;
   created_at?: string;
 }

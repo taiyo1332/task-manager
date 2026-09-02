@@ -26,3 +26,10 @@ export function isOverdue(dueDate: string | null, status: TaskStatus): boolean {
   today.setHours(0, 0, 0, 0);
   return new Date(dueDate) < today;
 }
+
+export function isSubtaskOverdue(dueDate: string | null, done: boolean): boolean {
+  if (!dueDate || done) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(dueDate) < today;
+}
